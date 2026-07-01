@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>PKMN Flipper — Occasioni</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: var(--tg-theme-bg-color, #17212b);
+      --sec-bg: var(--tg-theme-secondary-bg-color, #232e3c);
+      --text: var(--tg-theme-text-color, #f5f5f5);
+      --hint: var(--tg-theme-hint-color, #8a99a8);
+      --link: var(--tg-theme-link-color, #5ea9dd);
+      --btn: var(--tg-theme-button-color, #3390ec);
+      --btn-text: var(--tg-theme-button-text-color, #fff);
+      --good: #35c759;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text); font-size: 15px;
+      padding: 0 0 40px;
+    }
+    header { padding: 12px 14px 6px; position: sticky; top: 0; background: var(--bg); z-index: 5; }
+    h1 { font-size: 17px; margin: 0 0 2px; }
+    .meta { color: var(--hint); font-size: 12px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 14px; }
+    .controls input, .controls select {
+      background: var(--sec-bg); color: var(--text); border: none; border-radius: 8px;
+      padding: 8px 10px; font-size: 14px; outline: none;
+    }
+    #q { flex: 1 1 100%; }
+    .seg { display: flex; gap: 6px; }
+    .set-group { margin: 6px 0; }
+    .set-head {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; background: var(--sec-bg); cursor: pointer; user-select: none;
+      position: sticky; top: 96px; z-index: 3;
+    }
+    .set-head .name { font-weight: 600; }
+    .set-head .cnt { color: var(--hint); font-size: 12px; }
+    .cards { padding: 0 8px; }
+    .card {
+      display: block; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,.06);
+      color: inherit; text-decoration: none;
+    }
+    .card .row1 { display: flex; justify-content: space-between; gap: 8px; }
+    .card .cn { font-weight: 600; }
+    .card .num { color: var(--hint); font-weight: 400; font-size: 12px; }
+    .badge { color: var(--good); font-weight: 700; white-space: nowrap; }
+    .card .row2 { color: var(--hint); font-size: 12.5px; margin-top: 3px; }
+    .price { color: var(--text); }
+    .strike { text-decoration: line-through; color: var(--hint); }
+    .empty, .error { padding: 40px 20px; text-align: center; color: var(--hint); }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>💎 Occasioni Pokémon</h1>
+    <div class="meta" id="meta">Caricamento…</div>
+    <div class="controls">
+      <input id="q" type="search" placeholder="Cerca carta o set…" />
+      <div class="seg">
+        <select id="lang">
+          <option value="">Tutte le lingue</option>
+          <option value="EN">EN</option>
+          <option value="JP">JP</option>
+        </select>
+        <select id="sort">
+          <option value="margin">Margine €</option>
+          <option value="discount">Sconto %</option>
+          <option value="price">Prezzo</option>
+        </select>
+        <select id="mind">
+          <option value="0">Sconto ≥0%</option>
+          <option value="20">≥20%</option>
+          <option value="30">≥30%</option>
+          <option value="50">≥50%</option>
+        </select>
+      </div>
+    </div>
+  </header>
+  <main id="list"><div class="empty">Caricamento…</div></main>
+
+  <script>
+    "use strict";
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    // URL dei dati: la Edge Function inietta il path assoluto dello Storage al posto
+    // del placeholder; se servito direttamente dallo Storage (dev) resta il relativo.
+    const DEALS_URL = "https://udjsiborxgzawvhbfvdj.supabase.co/storage/v1/object/public/webapp/deals.json".indexOf("__") === 0 ? "./deals.json" : "https://udjsiborxgzawvhbfvdj.supabase.co/storage/v1/object/public/webapp/deals.json";
+
+    const state = { deals: [], q: "", lang: "", sort: "margin", mind: 0, open: {} };
+    const fmt = (n) => "€" + Number(n).toFixed(2);
+    const pct = (d) => Math.round(d * 100);
+
+    function openBuy(url) {
+      if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank");
+    }
+
+    function apply() {
+      const q = state.q.trim().toLowerCase();
+      let items = state.deals.filter((d) => {
+        if (state.lang && (d.lang || "") !== state.lang) return false;
+        if (pct(d.discount) < state.mind) return false;
+        if (q) {
+          const hay = ((d.card || "") + " " + (d.set || "") + " " + (d.number || "")).toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+      const cmp = {
+        margin: (a, b) => b.margin - a.margin,
+        discount: (a, b) => b.discount - a.discount,
+        price: (a, b) => a.price - b.price,
+      }[state.sort];
+      items.sort(cmp);
+      render(items);
+    }
+
+    function groupBySet(items) {
+      const map = new Map();
+      for (const d of items) {
+        const key = d.set || "—";
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(d);
+      }
+      // ordina i set per margine massimo al loro interno
+      return [...map.entries()].sort((a, b) => {
+        const ma = Math.max(...a[1].map((x) => x.margin));
+        const mb = Math.max(...b[1].map((x) => x.margin));
+        return mb - ma;
+      });
+    }
+
+    function render(items) {
+      const list = document.getElementById("list");
+      if (!items.length) {
+        list.innerHTML = '<div class="empty">Nessuna occasione con questi filtri.</div>';
+        return;
+      }
+      const groups = groupBySet(items);
+      let html = "";
+      for (const [set, cards] of groups) {
+        const isOpen = state.open[set] !== false; // default aperto
+        html += '<div class="set-group">';
+        html += '<div class="set-head" data-set="' + esc(set) + '">' +
+          '<span class="name">' + esc(set) + "</span>" +
+          '<span class="cnt">' + cards.length + " · max +" + fmt(Math.max(...cards.map(c => c.margin))) + "</span>" +
+          "</div>";
+        html += '<div class="cards ' + (isOpen ? "" : "hidden") + '">';
+        for (const d of cards) {
+          html += '<a class="card" href="#" data-url="' + esc(d.url || "") + '">' +
+            '<div class="row1"><span class="cn">' + esc(d.card || "") +
+            ' <span class="num">#' + esc(d.number || "") + "</span></span>" +
+            '<span class="badge">-' + pct(d.discount) + "% · +" + fmt(d.margin) + "</span></div>" +
+            '<div class="row2"><span class="price">' + fmt(d.price) + "</span> · " +
+            '<span class="strike">' + fmt(d.market) + "</span> · " +
+            esc(d.cond || "") + " · " + esc(d.lang || "") + " · " + esc(d.seller || "n/d") +
+            "</div></a>";
+        }
+        html += "</div></div>";
+      }
+      list.innerHTML = html;
+    }
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, (c) => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+      ));
+    }
+
+    document.getElementById("list").addEventListener("click", (e) => {
+      const head = e.target.closest(".set-head");
+      if (head) {
+        const set = head.getAttribute("data-set");
+        state.open[set] = state.open[set] === false; // toggle
+        apply();
+        return;
+      }
+      const card = e.target.closest(".card");
+      if (card) {
+        e.preventDefault();
+        const url = card.getAttribute("data-url");
+        if (url) openBuy(url);
+      }
+    });
+
+    const on = (id, ev, fn) => document.getElementById(id).addEventListener(ev, fn);
+    on("q", "input", (e) => { state.q = e.target.value; apply(); });
+    on("lang", "change", (e) => { state.lang = e.target.value; apply(); });
+    on("sort", "change", (e) => { state.sort = e.target.value; apply(); });
+    on("mind", "change", (e) => { state.mind = Number(e.target.value); apply(); });
+
+    async function load() {
+      try {
+        const res = await fetch(DEALS_URL + "?t=" + Date.now());
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        state.deals = data.deals || [];
+        const when = data.generated_at ? new Date(data.generated_at).toLocaleString("it-IT") : "—";
+        document.getElementById("meta").textContent =
+          (data.count || 0) + " occasioni · aggiornato " + when;
+        apply();
+      } catch (err) {
+        document.getElementById("list").innerHTML =
+          '<div class="error">Impossibile caricare le occasioni.<br>' + esc(err.message) + "</div>";
+        document.getElementById("meta").textContent = "Errore di caricamento";
+      }
+    }
+    load();
+  </script>
+</body>
+</html>
