@@ -54,6 +54,12 @@
     .strike { text-decoration: line-through; color: var(--hint); }
     .empty, .error { padding: 40px 20px; text-align: center; color: var(--hint); }
     .hidden { display: none; }
+    .addcart {
+      background: var(--btn); color: var(--btn-text); border: none; border-radius: 8px;
+      font-size: 14px; line-height: 1; padding: 6px 9px; cursor: pointer; flex: none;
+    }
+    .addcart:disabled { opacity: .55; cursor: default; }
+    .addcart.done { background: var(--good); }
   </style>
 </head>
 <body>
@@ -92,6 +98,10 @@
     // URL dei dati: la Edge Function inietta il path assoluto dello Storage al posto
     // del placeholder; se servito direttamente dallo Storage (dev) resta il relativo.
     const DEALS_URL = "https://udjsiborxgzawvhbfvdj.supabase.co/storage/v1/object/public/webapp/deals.json".indexOf("__") === 0 ? "./deals.json" : "https://udjsiborxgzawvhbfvdj.supabase.co/storage/v1/object/public/webapp/deals.json";
+    // Endpoint Edge Function per aggiungere al carrello CardTrader (baked a build time).
+    // Il bottone 🛒 esiste solo dentro Telegram: serve initData per autenticarsi.
+    const CART_URL = "https://udjsiborxgzawvhbfvdj.supabase.co/functions/v1/cart".indexOf("__") === 0 ? "" : "https://udjsiborxgzawvhbfvdj.supabase.co/functions/v1/cart";
+    const cartEnabled = Boolean(CART_URL && tg && tg.initData);
 
     const state = { deals: [], q: "", lang: "", sort: "margin", mind: 0, open: {} };
     const fmt = (n) => "€" + Number(n).toFixed(2);
@@ -153,10 +163,15 @@
           "</div>";
         html += '<div class="cards ' + (isOpen ? "" : "hidden") + '">';
         for (const d of cards) {
+          const cartBtn = cartEnabled && d.listing_id
+            ? '<button class="addcart" data-id="' + d.listing_id + '" data-ctz="' +
+              (d.ct_zero ? "1" : "0") + '" title="Aggiungi al carrello">🛒</button>'
+            : "";
           html += '<a class="card" href="#" data-url="' + esc(d.url || "") + '">' +
             '<div class="row1"><span class="cn">' + esc(d.card || "") +
             ' <span class="num">#' + esc(d.number || "") + "</span></span>" +
-            '<span class="badge">-' + pct(d.discount) + "% · +" + fmt(d.margin) + "</span></div>" +
+            '<span class="badge">-' + pct(d.discount) + "% · +" + fmt(d.margin) + "</span>" +
+            cartBtn + "</div>" +
             '<div class="row2"><span class="price">' + fmt(d.price) + "</span> · " +
             '<span class="strike">' + fmt(d.market) + "</span> · " +
             esc(d.cond || "") + " · " + esc(d.lang || "") + " · " + esc(d.seller || "n/d") +
@@ -173,7 +188,41 @@
       ));
     }
 
+    async function addToCart(btn) {
+      const productId = Number(btn.getAttribute("data-id"));
+      const ctZero = btn.getAttribute("data-ctz") === "1";
+      btn.disabled = true;
+      btn.textContent = "⏳";
+      try {
+        const res = await fetch(CART_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            init_data: tg.initData, product_id: productId, quantity: 1, ct_zero: ctZero,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+        btn.textContent = "✅";
+        btn.classList.add("done");
+        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "🛒";
+        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+        const msg = "Non aggiunto al carrello: " + err.message;
+        if (tg.showAlert) tg.showAlert(msg); else console.error(msg);
+      }
+    }
+
     document.getElementById("list").addEventListener("click", (e) => {
+      const cart = e.target.closest(".addcart");
+      if (cart) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!cart.disabled) addToCart(cart);
+        return;
+      }
       const head = e.target.closest(".set-head");
       if (head) {
         const set = head.getAttribute("data-set");
