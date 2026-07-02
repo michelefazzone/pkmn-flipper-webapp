@@ -60,6 +60,7 @@
     }
     .addcart:disabled { opacity: .55; cursor: default; }
     .addcart.done { background: var(--good); }
+    .warn { color: #f0a53c; font-size: 12px; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -175,7 +176,11 @@
             '<div class="row2"><span class="price">' + fmt(d.price) + "</span> · " +
             '<span class="strike">' + fmt(d.market) + "</span> · " +
             esc(d.cond || "") + " · " + esc(d.lang || "") + " · " + esc(d.seller || "n/d") +
-            "</div></a>";
+            "</div>" +
+            (d.warnings && d.warnings.length
+              ? '<div class="warn">⚠️ verifica a mano: ' + esc(d.warnings.join(", ")) + "</div>"
+              : "") +
+            "</a>";
         }
         html += "</div></div>";
       }
