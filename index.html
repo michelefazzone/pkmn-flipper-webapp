@@ -135,7 +135,11 @@
     const pct = (d) => Math.round(d * 100);
 
     function openBuy(url) {
-      if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank");
+      // try_instant_view: se esiste un template IV il link resta dentro Telegram.
+      // Dove si apre altrimenti (browser interno o esterno) lo decide l'impostazione
+      // "browser in-app" del client Telegram: non è forzabile dalla mini-app.
+      if (tg && tg.openLink) tg.openLink(url, { try_instant_view: true });
+      else window.open(url, "_blank");
     }
 
     // Filtri Cardmarket precompilati: lingua inglese + condizione minima NM.
