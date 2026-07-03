@@ -134,12 +134,46 @@
     const fmt = (n) => "€" + Number(n).toFixed(2);
     const pct = (d) => Math.round(d * 100);
 
+    // Stato UI persistito: tornando alla mini-app (back del webview o riapertura)
+    // si ritrovano ricerca, filtri, set aperti e punto di scroll.
+    const UI_KEY = "ui_state";
+
+    function saveUi(scrollY) {
+      try {
+        localStorage.setItem(UI_KEY, JSON.stringify({
+          q: state.q, lang: state.lang, sort: state.sort, mind: state.mind,
+          open: state.open, scrollY: scrollY || 0,
+        }));
+      } catch (e) { /* storage non disponibile: si riparte dai default */ }
+    }
+
+    function restoreUi() {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(UI_KEY) || "null"); } catch (e) {}
+      if (!saved || typeof saved !== "object") return 0;
+      state.q = String(saved.q || "");
+      state.lang = ["EN", "JP"].includes(saved.lang) ? saved.lang : "";
+      state.sort = ["margin", "discount", "price"].includes(saved.sort) ? saved.sort : "margin";
+      state.mind = [0, 20, 30, 50].includes(Number(saved.mind)) ? Number(saved.mind) : 0;
+      state.open = saved.open && typeof saved.open === "object" ? saved.open : {};
+      document.getElementById("q").value = state.q;
+      document.getElementById("lang").value = state.lang;
+      document.getElementById("sort").value = state.sort;
+      document.getElementById("mind").value = String(state.mind);
+      return Number(saved.scrollY) || 0;
+    }
+
     function openBuy(url) {
       // Bug Telegram-iOS: openLink dalle mini-app forza sempre il browser esterno
       // (github.com/TelegramMessenger/Telegram-iOS/issues/1670). Su iOS navighiamo
-      // la finestra stessa della mini-app: si resta dentro Telegram; per tornare
-      // alle occasioni basta richiudere e riaprire la mini-app.
-      if (tg && tg.platform === "ios") { window.location.href = url; return; }
+      // la finestra stessa della mini-app: si resta dentro Telegram e si torna
+      // indietro con lo swipe dal bordo sinistro (o richiudendo la mini-app);
+      // lo stato salvato riporta la lista esattamente dov'era.
+      if (tg && tg.platform === "ios") {
+        saveUi(window.scrollY);
+        window.location.href = url;
+        return;
+      }
       // Su Android openLink apre il browser interno (se attivo nelle impostazioni).
       if (tg && tg.openLink) tg.openLink(url, { try_instant_view: true });
       else window.open(url, "_blank");
@@ -191,6 +225,7 @@
       }[state.sort];
       items.sort(cmp);
       render(items);
+      saveUi(window.scrollY);
     }
 
     function groupBySet(items) {
@@ -374,7 +409,9 @@
         const when = data.generated_at ? new Date(data.generated_at).toLocaleString("it-IT") : "—";
         document.getElementById("meta").textContent =
           (data.count || 0) + " occasioni · aggiornato " + when;
+        const scrollY = restoreUi();
         apply();
+        if (scrollY) window.scrollTo(0, scrollY);
       } catch (err) {
         document.getElementById("list").innerHTML =
           '<div class="error">Impossibile caricare le occasioni.<br>' + esc(err.message) + "</div>";
