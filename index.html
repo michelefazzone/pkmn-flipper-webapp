@@ -135,9 +135,12 @@
     const pct = (d) => Math.round(d * 100);
 
     function openBuy(url) {
-      // try_instant_view: se esiste un template IV il link resta dentro Telegram.
-      // Dove si apre altrimenti (browser interno o esterno) lo decide l'impostazione
-      // "browser in-app" del client Telegram: non è forzabile dalla mini-app.
+      // Bug Telegram-iOS: openLink dalle mini-app forza sempre il browser esterno
+      // (github.com/TelegramMessenger/Telegram-iOS/issues/1670). Su iOS navighiamo
+      // la finestra stessa della mini-app: si resta dentro Telegram; per tornare
+      // alle occasioni basta richiudere e riaprire la mini-app.
+      if (tg && tg.platform === "ios") { window.location.href = url; return; }
+      // Su Android openLink apre il browser interno (se attivo nelle impostazioni).
       if (tg && tg.openLink) tg.openLink(url, { try_instant_view: true });
       else window.open(url, "_blank");
     }
