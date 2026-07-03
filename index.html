@@ -67,6 +67,17 @@
       background: var(--sec-bg); color: var(--link); border: none; border-radius: 8px;
       font-size: 13px; padding: 7px 10px; cursor: pointer;
     }
+    .gearbtn {
+      background: var(--sec-bg); color: var(--text); border: none; border-radius: 8px;
+      font-size: 14px; padding: 8px 10px; cursor: pointer;
+    }
+    .settings { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 8px; }
+    .settings.hidden { display: none; }
+    .settings input {
+      flex: 1 1 auto; background: var(--sec-bg); color: var(--text); border: none;
+      border-radius: 8px; padding: 8px 10px; font-size: 14px; outline: none;
+    }
+    .settings .msg { flex-basis: 100%; color: var(--hint); font-size: 12px; }
   </style>
 </head>
 <body>
@@ -92,6 +103,15 @@
           <option value="30">≥30%</option>
           <option value="50">≥50%</option>
         </select>
+        <button id="gear" class="gearbtn hidden" title="Token CardTrader">⚙️</button>
+      </div>
+    </div>
+    <div class="settings hidden" id="settings">
+      <input id="cttoken" type="password" placeholder="Il tuo token API CardTrader"
+        autocomplete="off" />
+      <button id="savetoken" class="addcart">Salva</button>
+      <div class="msg" id="settingsmsg">
+        Il token resta salvato solo sul tuo account Telegram: ognuno usa il proprio carrello.
       </div>
     </div>
   </header>
@@ -116,6 +136,34 @@
 
     function openBuy(url) {
       if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank");
+    }
+
+    // Filtri Cardmarket precompilati: lingua inglese + condizione minima NM.
+    function cmFiltered(url) {
+      if (!url || url.indexOf("cardmarket.com") === -1) return url;
+      return url + (url.indexOf("?") === -1 ? "?" : "&") + "language=1&minCondition=2";
+    }
+
+    // Token API CardTrader PER-UTENTE, salvato in locale (CloudStorage Telegram:
+    // segue l'account, non il dispositivo). Mai inviato altrove se non alla
+    // Edge Function `cart`, che lo inoltra a CardTrader.
+    const TOKEN_KEY = "ct_token";
+    let ctToken = "";
+
+    function loadToken(cb) {
+      if (tg && tg.CloudStorage && tg.CloudStorage.getItem) {
+        tg.CloudStorage.getItem(TOKEN_KEY, (err, value) => cb(err ? "" : (value || "")));
+      } else {
+        try { cb(localStorage.getItem(TOKEN_KEY) || ""); } catch (e) { cb(""); }
+      }
+    }
+
+    function storeToken(value, cb) {
+      if (tg && tg.CloudStorage && tg.CloudStorage.setItem) {
+        tg.CloudStorage.setItem(TOKEN_KEY, value, (err, ok) => cb(!err && ok !== false));
+      } else {
+        try { localStorage.setItem(TOKEN_KEY, value); cb(true); } catch (e) { cb(false); }
+      }
     }
 
     function apply() {
@@ -194,7 +242,8 @@
             '<div class="detail hidden">' +
             '<div class="info">' + info + "</div>" +
             (d.url
-              ? '<button class="openct" data-url="' + esc(d.url) + '">Apri su CardTrader ↗</button>'
+              ? '<button class="openct" data-url="' + esc(cmFiltered(d.url)) +
+                '">Apri su Cardmarket ↗</button>'
               : "") +
             "</div>" +
             "</div>";
@@ -211,6 +260,10 @@
     }
 
     async function addToCart(btn) {
+      if (!ctToken) {
+        openSettings("Prima imposta il tuo token API CardTrader.");
+        return;
+      }
       const productId = Number(btn.getAttribute("data-id"));
       const ctZero = btn.getAttribute("data-ctz") === "1";
       btn.disabled = true;
@@ -220,7 +273,8 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            init_data: tg.initData, product_id: productId, quantity: 1, ct_zero: ctZero,
+            init_data: tg.initData, ct_token: ctToken,
+            product_id: productId, quantity: 1, ct_zero: ctZero,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -266,11 +320,43 @@
       }
     });
 
+    function openSettings(message) {
+      document.getElementById("settings").classList.remove("hidden");
+      if (message) document.getElementById("settingsmsg").textContent = message;
+    }
+
+    function saveToken() {
+      const input = document.getElementById("cttoken");
+      const msg = document.getElementById("settingsmsg");
+      const token = input.value.trim();
+      if (token.length < 20) {
+        msg.textContent = "Token troppo corto: copia il token API dal tuo profilo CardTrader.";
+        return;
+      }
+      storeToken(token, (ok) => {
+        if (!ok) {
+          msg.textContent = "❌ Salvataggio non riuscito, riprova.";
+          return;
+        }
+        ctToken = token;
+        input.value = "";
+        msg.textContent = "✅ Token salvato: il 🛒 userà il tuo carrello.";
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      });
+    }
+
+    if (cartEnabled) {
+      document.getElementById("gear").classList.remove("hidden");
+      loadToken((value) => { ctToken = value; });
+    }
+
     const on = (id, ev, fn) => document.getElementById(id).addEventListener(ev, fn);
     on("q", "input", (e) => { state.q = e.target.value; apply(); });
     on("lang", "change", (e) => { state.lang = e.target.value; apply(); });
     on("sort", "change", (e) => { state.sort = e.target.value; apply(); });
     on("mind", "change", (e) => { state.mind = Number(e.target.value); apply(); });
+    on("gear", "click", () => document.getElementById("settings").classList.toggle("hidden"));
+    on("savetoken", "click", saveToken);
 
     async function load() {
       try {
