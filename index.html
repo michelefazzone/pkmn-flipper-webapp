@@ -61,6 +61,12 @@
     .addcart:disabled { opacity: .55; cursor: default; }
     .addcart.done { background: var(--good); }
     .warn { color: #f0a53c; font-size: 12px; margin-top: 2px; }
+    .detail { margin-top: 8px; }
+    .detail .info { color: var(--hint); font-size: 12.5px; margin-bottom: 8px; }
+    .openct {
+      background: var(--sec-bg); color: var(--link); border: none; border-radius: 8px;
+      font-size: 13px; padding: 7px 10px; cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -168,7 +174,12 @@
             ? '<button class="addcart" data-id="' + d.listing_id + '" data-ctz="' +
               (d.ct_zero ? "1" : "0") + '" title="Aggiungi al carrello">🛒</button>'
             : "";
-          html += '<a class="card" href="#" data-url="' + esc(d.url || "") + '">' +
+          const info = [
+            d.ref ? "rif. prezzo: " + esc(d.ref) : "",
+            d.country ? "venditore da: " + esc(d.country) : "",
+            "CT Zero: " + (d.ct_zero ? "sì" : "no"),
+          ].filter(Boolean).join(" · ");
+          html += '<div class="card">' +
             '<div class="row1"><span class="cn">' + esc(d.card || "") +
             ' <span class="num">#' + esc(d.number || "") + "</span></span>" +
             '<span class="badge">-' + pct(d.discount) + "% · +" + fmt(d.margin) + "</span>" +
@@ -180,7 +191,13 @@
             (d.warnings && d.warnings.length
               ? '<div class="warn">⚠️ verifica a mano: ' + esc(d.warnings.join(", ")) + "</div>"
               : "") +
-            "</a>";
+            '<div class="detail hidden">' +
+            '<div class="info">' + info + "</div>" +
+            (d.url
+              ? '<button class="openct" data-url="' + esc(d.url) + '">Apri su CardTrader ↗</button>'
+              : "") +
+            "</div>" +
+            "</div>";
         }
         html += "</div></div>";
       }
@@ -235,11 +252,17 @@
         apply();
         return;
       }
+      const open = e.target.closest(".openct");
+      if (open) {
+        const url = open.getAttribute("data-url");
+        if (url) openBuy(url);
+        return;
+      }
+      // Il tap sulla card espande il dettaglio inline, senza uscire dall'app.
       const card = e.target.closest(".card");
       if (card) {
-        e.preventDefault();
-        const url = card.getAttribute("data-url");
-        if (url) openBuy(url);
+        const detail = card.querySelector(".detail");
+        if (detail) detail.classList.toggle("hidden");
       }
     });
 
