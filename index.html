@@ -93,7 +93,7 @@
           <option value="JP">JP</option>
         </select>
         <select id="sort">
-          <option value="margin">Margine €</option>
+          <option value="margin">Margine netto €</option>
           <option value="discount">Sconto %</option>
           <option value="price">Prezzo</option>
         </select>
@@ -219,13 +219,19 @@
         return true;
       });
       const cmp = {
-        margin: (a, b) => b.margin - a.margin,
+        margin: (a, b) => net(b) - net(a),
         discount: (a, b) => b.discount - a.discount,
         price: (a, b) => a.price - b.price,
       }[state.sort];
       items.sort(cmp);
       render(items);
       saveUi(window.scrollY);
+    }
+
+    // Margine netto; le righe di un deals.json precedente al calcolo del netto
+    // non hanno il campo: si ripiega sul lordo.
+    function net(d) {
+      return d.net_margin != null ? d.net_margin : d.margin;
     }
 
     function groupBySet(items) {
@@ -235,10 +241,10 @@
         if (!map.has(key)) map.set(key, []);
         map.get(key).push(d);
       }
-      // ordina i set per margine massimo al loro interno
+      // ordina i set per margine netto massimo al loro interno
       return [...map.entries()].sort((a, b) => {
-        const ma = Math.max(...a[1].map((x) => x.margin));
-        const mb = Math.max(...b[1].map((x) => x.margin));
+        const ma = Math.max(...a[1].map(net));
+        const mb = Math.max(...b[1].map(net));
         return mb - ma;
       });
     }
@@ -256,7 +262,7 @@
         html += '<div class="set-group">';
         html += '<div class="set-head" data-set="' + esc(set) + '">' +
           '<span class="name">' + esc(set) + "</span>" +
-          '<span class="cnt">' + cards.length + " · max +" + fmt(Math.max(...cards.map(c => c.margin))) + "</span>" +
+          '<span class="cnt">' + cards.length + " · max +" + fmt(Math.max(...cards.map(net))) + "</span>" +
           "</div>";
         html += '<div class="cards ' + (isOpen ? "" : "hidden") + '">';
         for (const d of cards) {
@@ -266,13 +272,14 @@
             : "";
           const info = [
             d.ref ? "rif. prezzo: " + esc(d.ref) : "",
+            d.net_margin != null ? "margine lordo: +" + fmt(d.margin) : "",
             d.country ? "venditore da: " + esc(d.country) : "",
             "CT Zero: " + (d.ct_zero ? "sì" : "no"),
           ].filter(Boolean).join(" · ");
           html += '<div class="card">' +
             '<div class="row1"><span class="cn">' + esc(d.card || "") +
             ' <span class="num">#' + esc(d.number || "") + "</span></span>" +
-            '<span class="badge">-' + pct(d.discount) + "% · +" + fmt(d.margin) + "</span>" +
+            '<span class="badge">-' + pct(d.discount) + "% · +" + fmt(net(d)) + "</span>" +
             cartBtn + "</div>" +
             '<div class="row2"><span class="price">' + fmt(d.price) + "</span> · " +
             '<span class="strike">' + fmt(d.market) + "</span> · " +
