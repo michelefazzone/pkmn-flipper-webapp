@@ -61,6 +61,8 @@
     .addcart:disabled { opacity: .55; cursor: default; }
     .addcart.done { background: var(--good); }
     .warn { color: #f0a53c; font-size: 12px; margin-top: 2px; }
+    .ai { color: var(--hint); font-size: 12px; margin-top: 2px; }
+    .ai.mism { color: #e0564c; }
     .detail { margin-top: 8px; }
     .detail .info { color: var(--hint); font-size: 12.5px; margin-bottom: 8px; }
     .openct {
@@ -287,6 +289,11 @@
             "</div>" +
             (d.warnings && d.warnings.length
               ? '<div class="warn">⚠️ verifica a mano: ' + esc(d.warnings.join(", ")) + "</div>"
+              : "") +
+            (d.ai_score != null
+              ? '<div class="ai' + (d.ai_mismatch ? " mism" : "") + '">🤖 ' + d.ai_score + "/5" +
+                (d.ai_mismatch ? " · ❗possibile variante diversa" : "") +
+                (d.ai_note ? " — " + esc(d.ai_note) : "") + "</div>"
               : "") +
             '<div class="detail hidden">' +
             '<div class="info">' + info + "</div>" +
