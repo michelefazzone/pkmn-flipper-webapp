@@ -75,6 +75,18 @@
     }
     .settings { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 8px; }
     .settings.hidden { display: none; }
+    .hype { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+    .hype.hidden { display: none; }
+    .hypelist {
+      flex-basis: 100%; max-height: 45vh; overflow-y: auto;
+      border: 1px solid var(--sec-bg); border-radius: 8px;
+    }
+    .hyperow {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      font-size: 13.5px; border-bottom: 1px solid var(--sec-bg);
+    }
+    .hyperow:last-child { border-bottom: none; }
+    .hyperow .code { color: var(--hint); font-family: ui-monospace, monospace; font-size: 12px; }
     .settings input {
       flex: 1 1 auto; background: var(--sec-bg); color: var(--text); border: none;
       border-radius: 8px; padding: 8px 10px; font-size: 14px; outline: none;
@@ -114,6 +126,18 @@
       <button id="savetoken" class="addcart">Salva</button>
       <div class="msg" id="settingsmsg">
         Il token resta salvato solo sul tuo account Telegram: ognuno usa il proprio carrello.
+      </div>
+      <button id="openhype" class="gearbtn hidden">🔥 Set fascia hype</button>
+      <div class="hype hidden" id="hype">
+        <input id="hypeq" type="search" placeholder="Cerca set (nome o codice)…"
+          autocomplete="off" />
+        <span class="msg" id="hypecount"></span>
+        <div class="hypelist" id="hypelist"><div class="hyperow">Caricamento…</div></div>
+        <button id="savehype" class="addcart">Salva set hype</button>
+        <div class="msg" id="hypemsg">
+          I set attivi vengono scansionati ogni 3 ore; la modifica vale dalla
+          prossima run, senza riavvii.
+        </div>
       </div>
     </div>
   </header>
@@ -413,6 +437,103 @@
     on("mind", "change", (e) => { state.mind = Number(e.target.value); apply(); });
     on("gear", "click", () => document.getElementById("settings").classList.toggle("hidden"));
     on("savetoken", "click", saveToken);
+
+    // --- Configuratore fascia hype: tutti i set CardTrader, toggle on/off. ---
+    // Catalogo e selezione vivono accanto a deals.json nello stesso bucket; il
+    // salvataggio passa dalla Edge Function `schedule` (auth initData, come il 🛒).
+    const SCHED_URL = CART_URL ? CART_URL.replace(/\/cart$/, "/schedule") : "";
+    const EXPANSIONS_URL = DEALS_URL.replace("deals.json", "expansions.json");
+    const CODES_URL = DEALS_URL.replace("deals.json", "codes-hype.json");
+    const hype = { all: [], active: new Set(), q: "", loaded: false };
+
+    async function loadHype() {
+      if (hype.loaded) return;
+      const [expRes, codesRes] = await Promise.all([
+        fetch(EXPANSIONS_URL + "?t=" + Date.now()),
+        fetch(CODES_URL + "?t=" + Date.now()),
+      ]);
+      if (!expRes.ok) {
+        throw new Error("catalogo set non ancora pubblicato (HTTP " + expRes.status + ")");
+      }
+      hype.all = (await expRes.json()).expansions || [];
+      // Selezione corrente: se il file non esiste ancora si parte da vuoto.
+      let codes = [];
+      if (codesRes.ok) codes = (await codesRes.json()).codes || [];
+      hype.active = new Set(codes);
+      hype.loaded = true;
+    }
+
+    function renderHype() {
+      const q = hype.q.trim().toLowerCase();
+      const match = (e) => !q || e.name.toLowerCase().includes(q) || e.code.includes(q);
+      // Attivi in cima (ordine ricalcolato solo a render, non a ogni toggle).
+      const ordered = [
+        ...hype.all.filter((e) => hype.active.has(e.code)),
+        ...hype.all.filter((e) => !hype.active.has(e.code)),
+      ];
+      const rows = ordered.filter(match).map((e) =>
+        '<label class="hyperow"><input type="checkbox" data-code="' + esc(e.code) + '"' +
+        (hype.active.has(e.code) ? " checked" : "") + "/>" +
+        '<span class="code">' + esc(e.code) + "</span>" + esc(e.name) + "</label>"
+      );
+      document.getElementById("hypelist").innerHTML =
+        rows.join("") || '<div class="hyperow">Nessun set trovato.</div>';
+      updateHypeCount();
+    }
+
+    function updateHypeCount() {
+      document.getElementById("hypecount").textContent = hype.active.size + " set attivi";
+    }
+
+    async function saveHype() {
+      const msg = document.getElementById("hypemsg");
+      const btn = document.getElementById("savehype");
+      if (!hype.active.size) {
+        msg.textContent = "Seleziona almeno un set: con zero attivi resterebbe la lista di fallback.";
+        return;
+      }
+      btn.disabled = true;
+      msg.textContent = "⏳ Salvataggio…";
+      try {
+        const res = await fetch(SCHED_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ init_data: tg.initData, codes: [...hype.active] }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+        msg.textContent = "✅ " + data.count + " set attivi: valgono dalla prossima run hype.";
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      } catch (err) {
+        msg.textContent = "❌ Non salvato: " + err.message;
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+      }
+      btn.disabled = false;
+    }
+
+    if (cartEnabled && SCHED_URL) {
+      document.getElementById("openhype").classList.remove("hidden");
+    }
+    on("openhype", "click", async () => {
+      const panel = document.getElementById("hype");
+      panel.classList.toggle("hidden");
+      if (panel.classList.contains("hidden")) return;
+      try {
+        await loadHype();
+        renderHype();
+      } catch (err) {
+        document.getElementById("hypelist").innerHTML =
+          '<div class="hyperow">' + esc(err.message) + "</div>";
+      }
+    });
+    on("hypeq", "input", (e) => { hype.q = e.target.value; renderHype(); });
+    on("savehype", "click", saveHype);
+    document.getElementById("hypelist").addEventListener("change", (e) => {
+      const code = e.target.getAttribute && e.target.getAttribute("data-code");
+      if (!code) return;
+      if (e.target.checked) hype.active.add(code); else hype.active.delete(code);
+      updateHypeCount();
+    });
 
     async function load() {
       try {
